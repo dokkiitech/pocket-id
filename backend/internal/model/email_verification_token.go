@@ -6,6 +6,7 @@ type EmailVerificationToken struct {
 	Base
 
 	Token     string
+	Email     string
 	ExpiresAt datatype.DateTime
 
 	UserID string

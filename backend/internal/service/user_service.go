@@ -429,6 +429,16 @@ func (s *UserService) updateUserInternal(ctx context.Context, userID string, upd
 		if (user.Email == nil && updatedUser.Email != nil) || (user.Email != nil && updatedUser.Email != nil && *user.Email != *updatedUser.Email) {
 			// Email has changed, reset email verification status
 			user.EmailVerified = s.appConfigService.GetDbConfig().EmailsVerified.IsTrue()
+
+			// Invalidate pending verification tokens, as they were sent to the previous email address
+			err = tx.
+				WithContext(ctx).
+				Where("user_id = ?", user.ID).
+				Delete(&model.EmailVerificationToken{}).
+				Error
+			if err != nil {
+				return model.User{}, err
+			}
 		}
 
 		user.Email = updatedUser.Email
@@ -614,6 +624,7 @@ func (s *UserService) SendEmailVerification(ctx context.Context, userID string) 
 	emailVerificationToken := &model.EmailVerificationToken{
 		UserID:    user.ID,
 		Token:     randomToken,
+		Email:     *user.Email,
 		ExpiresAt: datatype.DateTime(expiration),
 	}
 
@@ -648,6 +659,11 @@ func (s *UserService) VerifyEmail(ctx context.Context, userID string, token stri
 	user, err := s.getUserInternal(ctx, emailVerificationToken.UserID, tx)
 	if err != nil {
 		return err
+	}
+
+	// The token is only valid for the email address it was sent to
+	if user.Email == nil || *user.Email != emailVerificationToken.Email {
+		return &common.InvalidEmailVerificationTokenError{}
 	}
 
 	user.EmailVerified = true
